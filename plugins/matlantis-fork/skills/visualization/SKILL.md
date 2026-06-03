@@ -16,9 +16,10 @@ Matlantis の JupyterLab 環境における原子構造とトラジェクトリ�
 
 Matlantis 環境では主に以下の可視化手段を利用できます。
 
-- **pfcc_extras.show_gui**: Matlantis 標準の可視化ツール。単一構造とトラジェクトリの両方に対応
+- **pfcc_extras.show_gui**: Matlantis 標準の GUI 可視化ツール。ViewerPanel・CalculatorPanel・EditorPanel を含む。原子インデックスや座標軸の表示にも対応（第一推奨）
+- **pfcc_extras.view_ngl**: シンプルな NGL ビューア。force ベクトル・charge カラーの可視化に対応（第二推奨）
 - **nglview**: 高機能な分子可視化ライブラリ。インタラクティブな操作と GUI パネルを提供
-- **ASE visualization**: ASE 組み込みの可視化機能。nglview バックエンドを指定可能
+- **ASE visualization**: NGL ビューアが動作しない場合のフォールバック手段
 - **POV-Ray**: 高品質な静止画レンダリング用
 
 可視化は計算の補助的な役割ですが、構造の妥当性確認を怠ると「原子が重なっている」「PBC が正しく設定されていない」といった初歩的なミスに気づかず、長時間の計算を無駄にすることがあります。計算投入前の可視化チェックは必須の手順です。
@@ -80,11 +81,69 @@ show_gui(trajectory)  # List[Atoms] を渡す
 - `List[ase.Atoms]`: トラジェクトリ（最適化過程、MD 過程など）
 - ASE Trajectory オブジェクト
 
+#### show_gui のオプション
+
+```python
+show_gui(
+    atoms,
+    show_axes=True,        # 座標軸を表示
+    show_atom_index=True,  # 原子インデックスを表示
+    show_force=True,       # force ベクトルを表示
+    show_charge=True,      # charge カラーを表示
+    ball_size=0.5,         # 原子の表示サイズ
+)
+```
+
 #### 注意事項
 
 - JupyterLab 環境でのみ動作します
 - 大規模系では表示が重くなる場合があります
 - Notebook セル内で呼び出す必要があります（スクリプト実行では表示されません）
+
+### パターン A2: pfcc_extras.view_ngl による可視化
+
+`view_ngl` は `show_gui` よりもシンプルな NGL ビューアです。GUI パネルは持ちませんが、force ベクトルや charge カラーの可視化に対応しています。
+
+```python
+from pfcc_extras import view_ngl, view_ngl_traj
+
+# 単一構造の表示
+view_ngl(atoms)
+
+# 軌跡の表示
+view_ngl_traj(trajectory)
+
+# force ベクトルを重ねて表示
+view_ngl(atoms, show_force=True)
+
+# charge カラーで表示
+view_ngl(atoms, show_charge=True)
+```
+
+`view_ngl` は `Atoms`・`List[Atoms]`・`Trajectory` を自動判別します。
+
+#### representations 引数
+
+`representations` には NGL のレプリゼンテーション名を文字列リストで渡します。デフォルト（`None`）ではビューアの標準表示が使われます。
+
+```python
+# ボール・アンド・スティック表示を追加
+view_ngl(atoms, representations=["ball+stick"])
+
+# 複数のレプリゼンテーションを組み合わせる
+view_ngl(atoms, representations=["ball+stick", "unitcell"])
+```
+
+主なレプリゼンテーション名: `"ball+stick"`, `"spacefill"`, `"licorice"`, `"surface"`, `"unitcell"`
+
+#### replace_structure 引数
+
+結合変化やセル形状の変化がある軌跡には `replace_structure=True` を使用してください。フレームをまたいで結合やセルの変化が正しく反映されます。デフォルト（`False`）では構造を追記方式で更新するため高速ですが、結合・セルの変化は反映されません。
+
+```python
+# 結合変化・セル形状変化がある軌跡（反応過程、セル最適化など）
+view_ngl_traj(trajectory, replace_structure=True)
+```
 
 ### パターン B: nglview による単一構造の可視化
 
@@ -233,8 +292,8 @@ display(view_after)
 
 ```python
 # 最適化トラジェクトリの表示
-from ase.io import read
-opt_traj = read("optimization.traj", index=":")
+from ase.io.trajectory import Trajectory
+opt_traj = Trajectory("optimization.traj")
 view = nv.show_asetraj(opt_traj, gui=True)
 view
 ```
@@ -310,14 +369,13 @@ print(f"Dihedral: {dihedral:.1f} degrees")
 `.traj` ファイルからトラジェクトリを読み込んで表示する一連の手順です。
 
 ```python
-from ase.io import read
+from ase.io.trajectory import Trajectory
 import nglview as nv
 
-# .traj ファイルからの全フレーム読み込み
-trajectory = read("md_trajectory.traj", index=":")
+trajectory = Trajectory("md_trajectory.traj")
 print(f"Total frames: {len(trajectory)}")
 
-# 適切に間引いて表示
+# 適切に間引いて表示（スライスは Atoms のリストを返す）
 step = max(1, len(trajectory) // 200)
 view = nv.show_asetraj(trajectory[::step], gui=True)
 print(f"Displaying {len(trajectory[::step])} frames (skip: {step})")
@@ -328,7 +386,20 @@ view
 
 ### pfcc-extras の可視化を優先する
 
-ASE と pfcc-extras の両方で可視化できる場合は、pfcc-extras を優先してください。`pfcc_extras.show_gui` は単一構造とトラジェクトリの両方に 1 行で対応でき、Matlantis 環境に最適化されています。`ase.visualize.view` は細かな制御が制限されるため、特別な理由がない限り使用を避けてください。
+ASE と pfcc-extras の両方で可視化できる場合は、pfcc-extras を優先してください。`ase.visualize.view` は NGL ビューアが動作しない環境でのフォールバックとして残しておきます。
+
+#### show_gui と view_ngl の使い分け
+
+| 機能 | `show_gui` | `view_ngl` |
+| :--- | :--- | :--- |
+| GUI パネル（ViewerPanel, CalculatorPanel, EditorPanel） | あり | なし |
+| 原子インデックス表示 | `show_atom_index=True` | 非対応 |
+| 座標軸表示 | `show_axes=True` | 非対応 |
+| force ベクトル表示 | `show_force=True` | `show_force=True` |
+| charge カラー表示 | `show_charge=True` | `show_charge=True` |
+| 推奨用途 | 構造確認・インタラクティブ編集（第一推奨） | シンプルな表示・force/charge 確認（第二推奨） |
+
+基本的には `show_gui` を使用してください。GUI パネルが不要な場合や force/charge を確認する場合は `view_ngl` を使用してください。
 
 ### 計算前の視覚チェック
 

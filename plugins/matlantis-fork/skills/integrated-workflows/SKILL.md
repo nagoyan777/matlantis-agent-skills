@@ -59,11 +59,14 @@ from typing import List, Tuple
 
 from ase.io import read, write
 from ase.optimize import FIRE
-from pfp_api_client.pfp.estimator import Estimator
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
 
 
-def build_calculator(calc_mode: str = "pbe", model_version: str = "latest") -> ASECalculator:
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
+
+
+def build_calculator(calc_mode: str = CALC_MODE, model_version: str = MODEL_VERSION) -> ASECalculator:
     """統一された calculator を生成する。全構造で同一条件を保証。"""
     estimator = Estimator(calc_mode=calc_mode, model_version=model_version)
     return ASECalculator(estimator)
@@ -145,12 +148,11 @@ import numpy as np
 from ase.io import read, write
 from ase.build import add_adsorbate
 from ase.optimize import FIRE
-from pfp_api_client.pfp.estimator import Estimator
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
 
 
 def setup_calc() -> ASECalculator:
-    return ASECalculator(Estimator(calc_mode="pbe_plus_d3", model_version="latest"))
+    return ASECalculator(Estimator(calc_mode="pbe_plus_d3", model_version=MODEL_VERSION))
 
 
 def generate_candidates(slab, adsorbate, n_candidates: int = 20) -> List:
@@ -242,12 +244,11 @@ from typing import List, Dict
 from ase.io import read, write
 from ase.optimize import FIRE
 from ase.constraints import FixAtoms
-from pfp_api_client.pfp.estimator import Estimator
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
 
 
 def create_calc() -> ASECalculator:
-    return ASECalculator(Estimator(calc_mode="pbe", model_version="latest"))
+    return ASECalculator(Estimator(calc_mode=CALC_MODE, model_version=MODEL_VERSION))
 
 
 def make_vacancy_candidate(base_atoms, remove_index: int):

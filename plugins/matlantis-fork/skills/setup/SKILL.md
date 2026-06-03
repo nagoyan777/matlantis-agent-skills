@@ -3,7 +3,7 @@ name: mt-setup
 description: >
   Calculator初期化、PFP Estimator設定、計算モード(calc_mode)選択、構造ファイルI/O、
   バッチ実行設定を扱うセットアップスキルです。
-  pfp_api_client, ASECalculator, Estimator, EstimatorCalcMode, estimator_fn, pfp_estimator_fn,
+  pfp_api_client, ASECalculator, Estimator, estimator_fn, pfp_estimator_fn,
   max_retries, calc_mode選択, PBE, PBE_U, R2SCAN, WB97XD, D3,
   ase.io.read, ase.io.write, .cif, .xyz, POSCAR, .traj,
   run_jobs, ResourceAwareJobScheduler, calculator.reset,
@@ -75,13 +75,15 @@ Matlantis 向けに `.ipynb` を新規作成・更新する場合は、Notebook 
 最も基本的な初期化パターンです。`model_version` を常に明示して再現性を確保します。
 
 ```python
-from pfp_api_client.pfp.estimator import Estimator, EstimatorCalcMode
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
+
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
 
 # Estimator を作成（モデルバージョン・計算モードを指定）
 estimator = Estimator(
-    model_version="v8.0.0",
-    calc_mode=EstimatorCalcMode.PBE,
+    model_version=MODEL_VERSION,
+    calc_mode=CALC_MODE,
     max_retries=15  # サーバー混雑時のリトライ（10-15 推奨）
 )
 
@@ -95,11 +97,11 @@ atoms.calc = calculator
 リトライ付きファクトリ関数として定義する場合:
 
 ```python
-def get_calculator(calc_mode: str = "PBE", max_retries: int = 15) -> ASECalculator:
+def get_calculator(calc_mode: str = CALC_MODE, max_retries: int = 15) -> ASECalculator:
     """PFP Calculator を初期化する。"""
     estimator = Estimator(
         calc_mode=calc_mode,
-        model_version="v8.0.0",
+        model_version=MODEL_VERSION,
         max_retries=max_retries
     )
     calculator = ASECalculator(estimator)
@@ -112,17 +114,16 @@ matlantis-features の各 Feature には `estimator_fn`（Estimator を毎回新
 
 ```python
 from matlantis_features.utils.calculators import pfp_estimator_fn
-from pfp_api_client.pfp.estimator import EstimatorCalcMode
 
 # 組み込みファクトリ
 estimator_fn = pfp_estimator_fn(
-    model_version="v8.0.0",
-    calc_mode=EstimatorCalcMode.PBE,
+    model_version=MODEL_VERSION,
+    calc_mode=CALC_MODE,
 )
 
 # またはカスタムファクトリ
 def my_estimator_fn():
-    return Estimator(model_version="v8.0.0", calc_mode=EstimatorCalcMode.R2SCAN)
+    return Estimator(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 ```
 
 ### パターン C: エネルギー・力・応力の取得
@@ -153,8 +154,9 @@ atoms = read("structure.cif")
 # 読み込み（最初のフレーム）
 atoms = read("structure.cif", index=0)
 
-# 全フレーム読み込み（トラジェクトリ等）
-frames = read("opt.traj", index=":")
+# .traj トラジェクトリは Trajectory で読み込む
+from ase.io.trajectory import Trajectory
+traj = Trajectory("opt.traj")
 
 # 書き出し（拡張子で自動判定）
 write("output.cif", atoms)
@@ -230,10 +232,10 @@ energy = atoms.get_potential_energy()  # 再計算
 モデルバージョン・計算モードごとに計算可能な元素を確認します。
 
 ```python
-from pfp_api_client.pfp.estimator import Estimator
+from pfp_api_client import Estimator
 
-estimator = Estimator(model_version="v8.0.0", calc_mode="PBE")
-elements = estimator.supported_elements(model_version="v8.0.0", calc_mode="PBE")
+estimator = Estimator(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
+elements = estimator.supported_elements(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 print(f"Supported elements: {elements}")
 print(f"Number of supported elements: {len(elements)}")
 ```
@@ -250,9 +252,10 @@ from pfcc_extras import show_gui
 # 単一構造の可視化
 show_gui(atoms)
 
-# トラジェクトリ（構造のリスト）の可視化
-frames = read("opt.traj", index=":")
-show_gui(frames)
+# トラジェクトリの可視化
+from ase.io.trajectory import Trajectory
+traj = Trajectory("opt.traj")
+show_gui(traj)
 ```
 
 周期境界がおかしい、原子が重なっている、意図しない構造になっているといった問題を可視化で即座に発見できます。
@@ -293,7 +296,7 @@ def ensure_output_dir(path: str) -> str:
 
 ### 重要な注意事項
 
-1. **model_version は常に明示する**: 指定しないと最新版が使われ、将来的に計算結果が変動するリスクがあります。`model_version="v8.0.0"` のようにバージョンを固定してください。
+1. **model_version は常に明示する**: 指定しないと最新版が使われ、将来的に計算結果が変動するリスクがあります。`MODEL_VERSION = "v9.0.0"` のようにモジュールレベルの定数として定義し、固定してください。
 
 2. **Estimator は共有しない**: 1 つの Estimator を複数の ASECalculator で共有してはいけません。Calculator ごとに個別の Estimator を生成してください。
 

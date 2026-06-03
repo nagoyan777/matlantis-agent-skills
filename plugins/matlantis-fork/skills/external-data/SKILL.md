@@ -226,8 +226,7 @@ write("POSCAR", optimized_atoms, format="vasp", sort=True)
 外部データベースから取得した構造は、PFP のポテンシャル面上で再最適化することを推奨します。
 
 ```python
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
-from pfp_api_client.pfp.estimator import Estimator
+from pfp_api_client import Estimator, ASECalculator
 from ase.optimize import BFGS
 
 def reoptimize_with_pfp(atoms, calc_mode="PBE", fmax=0.01):
@@ -240,7 +239,7 @@ def reoptimize_with_pfp(atoms, calc_mode="PBE", fmax=0.01):
     - 後続の計算（物性、反応経路等）の一貫性を確保するため
     """
     calc = ASECalculator(
-        Estimator(model_version="v8.0.0", calc_mode=calc_mode)
+        Estimator(model_version=MODEL_VERSION, calc_mode=calc_mode)
     )
     atoms.calc = calc
 
@@ -303,6 +302,29 @@ def load_from_any_source(source, source_type="file", **kwargs):
     else:
         raise ValueError(f"Unknown source_type: {source_type}")
 ```
+
+### pymatgen Structure ↔ ASE Atoms の変換
+
+pymatgen の `Structure` オブジェクトと ASE の `Atoms` オブジェクトは相互変換できます。2 つの方法があり、どちらも同じ結果を返します。
+
+| 変換方向 | `Structure` メソッド | `AseAtomsAdaptor` |
+| :--- | :--- | :--- |
+| ASE → pymatgen | `Structure.from_ase_atoms(atoms)` | `AseAtomsAdaptor.get_structure(atoms)` |
+| pymatgen → ASE | `structure.to_ase_atoms()` | `AseAtomsAdaptor.get_atoms(structure)` |
+
+`Structure.from_ase_atoms` / `to_ase_atoms` は `AseAtomsAdaptor` を内部で呼ぶラッパーです。追加の import が不要なため、単純な変換では `Structure` のメソッドを使う方が簡潔です。
+
+```python
+from pymatgen.core import Structure
+
+# ASE Atoms → pymatgen Structure
+structure = Structure.from_ase_atoms(atoms)
+
+# pymatgen Structure → ASE Atoms
+atoms = structure.to_ase_atoms()
+```
+
+`AseAtomsAdaptor` は `cls` 引数で返り値の型を変えたい場合（例: `IStructure`）など、より細かい制御が必要なときに使用します。
 
 ## ベストプラクティス
 

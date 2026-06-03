@@ -3,7 +3,7 @@ name: mt-optimization
 description: >
   構造最適化（構造緩和）を扱うスキルです。
   LBFGS, BFGS, FIRE, fmax, 構造最適化, 構造緩和, geometry optimization,
-  FrechetCellFilter, ExpCellFilter, UnitCellASEFilter, セル最適化, cell optimization,
+  FrechetCellFilter, UnitCellASEFilter, セル最適化, cell optimization,
   FixSymmetry, 対称性保持, maxstep,
   BFGSASEOptFeature, FireASEOptFeature, LBFGSASEOptFeature, filter=True,
   多段階最適化, 収束基準, trajectory
@@ -104,17 +104,19 @@ def run_variable_cell_optimization(
     return atoms
 ```
 
-#### ExpCellFilter を使用する場合（簡潔パターン）
+#### FrechetCellFilter を使用する場合（簡潔パターン）
 
 ```python
-from ase.filters import ExpCellFilter
+from ase.filters import FrechetCellFilter
 from ase.optimize import FIRE
 
 atoms.calc = calculator
-filtered = ExpCellFilter(atoms)
+filtered = FrechetCellFilter(atoms)
 opt = FIRE(filtered, trajectory="opt.traj")
 opt.run(fmax=0.01)
 ```
+
+> **注意**: `ExpCellFilter` は ASE 3.23.0 で非推奨になりました（`FrechetCellFilter` は 3.24.0 で導入）。ASE 3.24.0 以上では常に `FrechetCellFilter` を使用してください。
 
 ### パターン C: 対称性保持最適化
 
@@ -122,12 +124,12 @@ opt.run(fmax=0.01)
 
 ```python
 from ase.constraints import FixSymmetry
-from ase.filters import ExpCellFilter
+from ase.filters import FrechetCellFilter
 from ase.optimize import FIRE
 
 atoms.calc = calculator
 atoms.set_constraint(FixSymmetry(atoms))
-filtered = ExpCellFilter(atoms)
+filtered = FrechetCellFilter(atoms)
 opt = FIRE(filtered, trajectory="opt.traj")
 opt.run(fmax=0.01)
 ```
@@ -198,7 +200,10 @@ matlantis-features は構造最適化のための高レベル API を提供し�
 from matlantis_features.features.common.opt import BFGSASEOptFeature
 from matlantis_features.utils.calculators import pfp_estimator_fn
 
-estimator_fn = pfp_estimator_fn(model_version="v8.0.0")
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
+
+estimator_fn = pfp_estimator_fn(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 
 # 固定セル最適化
 opt = BFGSASEOptFeature(

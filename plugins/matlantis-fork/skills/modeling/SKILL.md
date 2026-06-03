@@ -129,35 +129,40 @@ def create_slabs(
 RDKit を使用して SMILES 文字列から 3 次元分子構造を生成します。
 
 ```python
-from rdkit import Chem
-from rdkit.Chem import AllChem
 from ase import Atoms
 
 def smiles_to_atoms(smiles: str, vacuum: float = 10.0) -> Atoms:
-    """SMILES 文字列から 3 次元分子構造 (Atoms) を生成する。"""
-    # 分子オブジェクト生成
+    """SMILES 文字列から 3 次元分子構造 (Atoms) を生成する。
+
+    pfcc_extras が利用可能な場合はそちらを優先し、なければ RDKit にフォールバックする。
+    """
+    try:
+        from pfcc_extras import smiles_to_atoms as _pfcc_smiles_to_atoms
+        atoms = _pfcc_smiles_to_atoms(smiles)
+        atoms.center(vacuum=vacuum)
+        return atoms
+    except ImportError:
+        pass
+
+    # pfcc_extras が利用できない場合は RDKit で生成
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"Invalid SMILES string: {smiles}")
 
-    # 水素付加
     mol = AllChem.AddHs(mol)
-
-    # 3 次元配座の生成 (ETKDG 法)
     res = AllChem.EmbedMolecule(mol)
     if res == -1:
-        # 生成失敗時はランダム座標で再試行
         res = AllChem.EmbedMolecule(mol, useRandomCoords=True)
 
-    # 座標と元素情報の抽出
     conf = mol.GetConformer()
     positions = conf.GetPositions()
     symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
 
-    # ASE Atoms 生成（真空層付き）
     atoms = Atoms(symbols=symbols, positions=positions)
     atoms.center(vacuum=vacuum)
-
     return atoms
 ```
 

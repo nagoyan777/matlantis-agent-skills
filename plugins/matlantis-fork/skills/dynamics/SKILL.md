@@ -3,7 +3,8 @@ name: mt-dynamics
 description: >
   分子動力学(MD)シミュレーションを扱うスキルです。
   Langevin, VelocityVerlet, NPTBerendsen, NVE, NVT, NPT,
-  MaxwellBoltzmannDistribution, timestep, friction, temperature_K,
+  thermalize_momenta, MaxwellBoltzmannDistribution, timestep, friction, temperature_K,
+  NoseHooverChainNVT, Bussi, LangevinBAOAB, MelchionnaNPT,
   MDFeature, PostMDDiffusionFeature, PostMDSpecificHeatFeature,
   PostEMDViscosityFeature, PostNEMDViscosityFeature, PostNEMDThermalConductivityFeature,
   PLUMED, メタダイナミクス, metadynamics, FES, collective variable,
@@ -25,7 +26,7 @@ description: >
 
 ```
 1. Prepare     - 構造最適化済みの atoms を用意し、Calculator をセット
-2. Initialize  - 初期温度に応じた速度分布 (MaxwellBoltzmann) を付与
+2. Initialize  - 初期温度に応じた速度分布 (thermalize_momenta) を付与
 3. Choose      - 目的に応じたアンサンブル (NVE / NVT / NPT) を選択
 4. Configure   - タイムステップ、摩擦係数、圧力パラメータ等を設定
 5. Run         - 時間発展計算を実行、トラジェクトリを保存
@@ -39,15 +40,15 @@ description: >
 すべての MD 計算で共通する初期速度の付与とトラジェクトリ保存の設定です。
 
 ```python
-from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary, ZeroRotation
+from ase.md.velocitydistribution import thermalize_momenta, Stationary, ZeroRotation
 from ase.io.trajectory import Trajectory
 from ase import units
 
 # Calculator を設定
 atoms.calc = calculator
 
-# 初期速度の付与
-MaxwellBoltzmannDistribution(atoms, temperature_K=300)
+# 初期速度の付与（thermalize_momenta が MaxwellBoltzmannDistribution の後継）
+thermalize_momenta(atoms, temperature_K=300)
 Stationary(atoms)       # 重心運動（全体の並進）を除去
 ZeroRotation(atoms)     # 全体の回転を除去
 
@@ -56,6 +57,8 @@ traj = Trajectory("md.traj", "w", atoms)
 ```
 
 `Stationary` と `ZeroRotation` をセットで適用することで、全体の並進・回転の寄生成分を確実に除去します。
+
+> **注意**: `MaxwellBoltzmannDistribution` は ASE 3.28.0 で非推奨になりました。同バージョンで導入された `thermalize_momenta` を使用してください。
 
 ### パターン B: NVE アンサンブル (VelocityVerlet)
 
@@ -77,17 +80,18 @@ NVE ではエネルギー保存が正しいかを確認してください。保�
 体積 (V) と温度 (T) を一定に保つシミュレーションです。最も安定しており、平衡状態のサンプリングや高温での構造探索（アニール）に適しています。
 
 ```python
+```python
 from ase.md.langevin import Langevin
 from ase import units
 from ase.io import Trajectory
-from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
+from ase.md.velocitydistribution import thermalize_momenta, Stationary
 
 def run_nvt_md(
     atoms,
     temp_k: float = 300.0,
     steps: int = 5000,
     dt_fs: float = 1.0,
-    friction: float = 0.01,
+    friction_per_fs: float = 0.01,
     traj_file: str = "md_nvt.traj"
 ):
     """
@@ -96,10 +100,10 @@ def run_nvt_md(
     Args:
         temp_k: 設定温度 (K)
         dt_fs: タイムステップ (fs). 水素含む系は 0.5-1.0, それ以外は 1.0-2.0 推奨
-        friction: 摩擦係数 (atomic units). 0.002-0.02 が一般的
-                  大きいほど温度制御が強いが、ダイナミクスに粘性が入る
+        friction_per_fs: 摩擦係数 (fs⁻¹). 0.002-0.02 が一般的
+                         大きいほど温度制御が強いが、ダイナミクスに粘性が入る
     """
-    MaxwellBoltzmannDistribution(atoms, temperature_K=temp_k)
+    thermalize_momenta(atoms, temperature_K=temp_k)
     Stationary(atoms)
 
     traj = Trajectory(traj_file, 'w', atoms)
@@ -108,7 +112,7 @@ def run_nvt_md(
         atoms,
         timestep=dt_fs * units.fs,
         temperature_K=temp_k,
-        friction=friction,
+        friction=friction_per_fs / units.fs,  # fs⁻¹ → ASE 内部時間単位⁻¹
         trajectory=traj,
         loginterval=10
     )
@@ -124,20 +128,22 @@ def run_nvt_md(
 ```python
 from ase.md.langevin import Langevin
 
-dyn = Langevin(atoms, timestep=1.0 * units.fs, temperature_K=300, friction=0.01)
+dyn = Langevin(atoms, timestep=1.0 * units.fs, temperature_K=300, friction=0.01/units.fs)
 dyn.attach(traj.write, interval=10)
 dyn.run(5000)
 traj.close()
 ```
+
+> **注意**: `friction` は ASE 内部時間単位の逆数で渡します。物理的な摩擦係数 (fs⁻¹) を指定する場合は `friction=0.01/units.fs` のように `units.fs` で割ってください。`fixcm=True`（デフォルト）は ASE 3.28.0 で非推奨になりました。重心運動を固定したい場合は `FixCom` 拘束を使用してください。
 
 ### パターン D: NPT アンサンブル (Nose-Hoover)
 
 粒子数 (N)、圧力 (P)、温度 (T) を一定に保ちます。結晶の格子定数を有限温度で決定する場合や、密度を緩和させる場合に使用します。
 
 ```python
-from ase.md.npt import NPT
+from ase.md.npt import NPT  # MelchionnaNPT とも呼ばれる。ASE ドキュメントでは "not recommended" と明記されており、温度・圧力が振動しやすい。新規コードでは LangevinBAOAB または IsotropicMTKNPT を推奨
 from ase import units
-from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
+from ase.md.velocitydistribution import thermalize_momenta, Stationary
 
 def run_npt_md(
     atoms,
@@ -163,7 +169,7 @@ def run_npt_md(
         bulk_modulus_guess_gpa = 75.0
         pfactor = (bulk_modulus_guess_gpa * units.GPa) * (ttime * units.fs)**2
 
-    MaxwellBoltzmannDistribution(atoms, temperature_K=temp_k)
+    thermalize_momenta(atoms, temperature_K=temp_k)
     Stationary(atoms)
 
     traj = Trajectory(traj_file, 'w', atoms)
@@ -310,24 +316,50 @@ EMD (Equilibrium MD) と NEMD (Non-Equilibrium MD) の使い分け:
 
 MD シミュレーションにおいて、堆積（`DepositionScheduler`）、外部電場（`ApplyUniformEfield`）、境界制御（`ElasticVirtualWall`）、温度スケジュール（`TemperatureScaleScheduler`）、分子削除（`DeleteMoleculeScheduler`）などの高度な制御には、ASE の低レベル API を直接操作するのではなく pfcc-extras のスケジューラ・制約 API を優先して使用してください。入射エネルギーから速度への変換には `convert_kinetic_energy_to_velocity` を使用し、条件比較を容易にしてください。
 
+### アンサンブルとインテグレータの選択
+
+| アンサンブル | クラス | 特徴 |
+|-------------|--------|------|
+| NVE | `VelocityVerlet` | サーモスタットなし。動的性質評価向き |
+| NVT | `Langevin` | 最も安定。平衡化・構造探索に汎用 |
+| NVT | `NoseHooverChainNVT` | 正準分布を厳密にサンプリング（ASE 3.24.0+） |
+| NVT | `Bussi` | 速度スケーリング型。NVT の別選択肢（ASE 3.24.0+） |
+| NPT | `NPT` / `MelchionnaNPT` | **非推奨** (ASE: "not recommended")。温度・圧力が振動しやすい |
+| NPT | `LangevinBAOAB` | **推奨**。NVE/NVT/NPH/NPT を統一的に扱える。柔軟性が高い |
+| NPT (等方) | `IsotropicMTKNPT` | MTK barostat。等方的体積変動のみ（ASE 3.25.0+） |
+| NPT (非対称) | `MTKNPT` / `MaskedMTKNPT` | セルの全自由度または選択軸の変動を許す（ASE 3.25.0+） |
+| NPT (簡易) | `NPTBerendsen` | 弱い結合。正準分布は保証されないが安定 |
+
 ### パラメータ設定の指針
 
 | パラメータ | 推奨範囲 | 備考 |
 |-----------|---------|------|
 | タイムステップ (dt) | 0.5-2.0 fs | 水素含む系: 0.5-1.0 fs, 重原子のみ: 1.0-2.0 fs |
-| Friction (NVT) | 0.002-0.02 | 弱い: 拡散係数の正確な評価向き。強い: 温度安定性重視 |
+| Friction (Langevin) | 0.002-0.02 fs⁻¹ | `friction=0.01/units.fs` のように指定。弱い: 拡散係数評価向き。強い: 温度安定性重視 |
 | pfactor (NPT) | bulk modulus 依存 | 柔らかい材料: 小さめ、硬い材料: 大きめ |
 | 保存間隔 | 10-100 ステップ | 解析精度と保存容量のバランス |
 
 ### サーモスタットの強弱と物性への影響
 
-- **弱いサーモスタット (friction: 0.002)**: 拡散係数、粘度など動的性質の評価に適する。サーモスタットのバイアスが小さい
-- **強いサーモスタット (friction: 0.02)**: 温度安定性が高い。構造探索や平衡化に適する
+- **弱いサーモスタット (friction: 0.002 fs⁻¹)**: 拡散係数、粘度など動的性質の評価に適する。サーモスタットのバイアスが小さい
+- **強いサーモスタット (friction: 0.02 fs⁻¹)**: 温度安定性が高い。構造探索や平衡化に適する
 - **NVE に切り替え**: サーモスタットの影響を完全に排除したい場合。平衡化後に NVT -> NVE へ切り替える手法もある
+
+### 平衡化の確認
+
+計算開始直後は系が平衡状態にないため、物性値の計算前に必ず平衡化を確認してください。アンサンブルごとに確認すべき物理量が異なります。
+
+| アンサンブル | 確認すべき物理量 |
+| :--- | :--- |
+| NVE | 全エネルギー保存（ドリフトがないか） |
+| NVT | 温度、ポテンシャルエネルギー |
+| NPT | 温度、ポテンシャルエネルギー、**圧力**、**体積**、**密度** |
+
+密度は有機系・アモルファス系では特に重要です。体積が収束していても密度の絶対値が実験値や既知の値と大きく異なる場合は、力場・初期構造・圧力設定を見直してください。
 
 ### その他の推奨事項
 
-1. **平衡化 (Equilibration)**: 計算開始直後は系が安定していないため、最初の数千ステップはデータ解析から除外してください。
+1. **平衡化の除外**: 物性値の計算は平衡化確認後の production trajectory のみを対象にしてください。平衡化に必要なステップ数は系・温度・圧力・サーモスタット強度に依存するため、時系列プロットを目視して判断してください。
 
 2. **トラジェクトリの可視化**: 計算終了後、必ずトラジェクトリを可視化して、原子が不自然に飛び出したりクラスタ化したりしていないか確認してください。
 

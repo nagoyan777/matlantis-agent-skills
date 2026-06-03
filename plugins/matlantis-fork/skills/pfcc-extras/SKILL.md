@@ -82,7 +82,7 @@ view_ngl_traj(trajectory)
 ```python
 from pfcc_extras import AddEditor
 
-editor = AddEditor(atoms, fallback_calc_mode="pbe", fallback_model_version="v8.0.0")
+editor = AddEditor(atoms, fallback_calc_mode=CALC_MODE, fallback_model_version=MODEL_VERSION)
 ```
 
 GUI 上で原子の追加・削除・移動などをインタラクティブに行えます。

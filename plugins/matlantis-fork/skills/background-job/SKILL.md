@@ -120,17 +120,19 @@ foreground 実行が必要な場合のみ、別手段として `jupyter nbconver
 from ase.io import read, Trajectory
 from ase.md.langevin import Langevin
 from ase import units
-from pfp_api_client.pfp.estimator import Estimator, EstimatorCalcMode
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
+
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
 
 atoms = read('initial.cif')
 atoms.calc = ASECalculator(
-    Estimator(model_version='v8.0.0', calc_mode=EstimatorCalcMode.PBE)
+    Estimator(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 )
 
 # "a" = append モード: 再起動後も続きから書き込まれる
 traj = Trajectory('md.traj', 'a', atoms)
-dyn = Langevin(atoms, timestep=1.0*units.fs, temperature_K=300, friction=0.01)
+dyn = Langevin(atoms, timestep=1.0*units.fs, temperature_K=300, friction=0.01/units.fs)
 dyn.attach(traj.write, interval=100)  # 100 ステップごとに保存
 
 dyn.run(100000)
@@ -149,8 +151,7 @@ dyn.run(100000)
 import json, os
 from ase.optimize import BFGS
 from ase.io import read
-from pfp_api_client.pfp.estimator import Estimator, EstimatorCalcMode
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
 
 structures = read('structures.xyz', ':')
 results_file = 'optimization_results.json'
@@ -166,7 +167,7 @@ else:
 
 for i, atoms in enumerate(structures[start_idx:], start=start_idx):
     atoms.calc = ASECalculator(
-        Estimator(model_version='v8.0.0', calc_mode=EstimatorCalcMode.PBE)
+        Estimator(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
     )
     opt = BFGS(atoms, trajectory=f'opt_{i}.traj')
     opt.run(fmax=0.05)

@@ -96,11 +96,13 @@ PFP は以下を扱えません:
 ## Calculator の基本セットアップ
 
 ```python
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
-from pfp_api_client.pfp.estimator import Estimator, EstimatorCalcMode
+from pfp_api_client import Estimator, ASECalculator
+
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
 
 # 基本セットアップ
-estimator = Estimator(model_version="v8.0.0", calc_mode=EstimatorCalcMode.PBE)
+estimator = Estimator(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 calculator = ASECalculator(estimator)
 
 # Atoms にアタッチして計算
@@ -119,11 +121,10 @@ Estimator インスタンスを直接渡してはいけません。
 
 ```python
 from matlantis_features.utils.calculators import pfp_estimator_fn
-from pfp_api_client.pfp.estimator import EstimatorCalcMode
 
 estimator_fn = pfp_estimator_fn(
-    model_version="v8.0.0",
-    calc_mode=EstimatorCalcMode.PBE,
+    model_version=MODEL_VERSION,
+    calc_mode=CALC_MODE,
 )
 ```
 

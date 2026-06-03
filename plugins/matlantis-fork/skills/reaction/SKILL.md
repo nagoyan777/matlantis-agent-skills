@@ -87,12 +87,15 @@ def modify_trajectory_by_mic(traj: List[Atoms]) -> List[Atoms]:
 ```python
 from matlantis_features.features.reaction import ReactionStringFeature
 from matlantis_features.utils.calculators import pfp_estimator_fn
+
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
 from datetime import timedelta
 
 def run_reaction_string(
     start_atoms: Atoms,
     end_atoms: Atoms,
-    calc_mode: str = "PBE",
+    calc_mode: str = CALC_MODE,
     timeout_sec: int = 1800
 ) -> List[Atoms]:
     """
@@ -114,7 +117,7 @@ def run_reaction_string(
         fmax_eq=0.05,
         timeout=timedelta(seconds=timeout_sec),
         estimator_fn=pfp_estimator_fn(
-            model_version="v8.0.0",
+            model_version=MODEL_VERSION,
             calc_mode=calc_mode
         )
     )
@@ -152,8 +155,7 @@ ASE 標準の NEB 法を直接利用する実装です。パラメータの細�
 ```python
 from ase.mep import NEB
 from ase.optimize import FIRE
-from pfp_api_client.pfp.estimator import Estimator, EstimatorCalcMode
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
+from pfp_api_client import Estimator, ASECalculator
 
 def run_neb(
     react: Atoms,
@@ -162,7 +164,7 @@ def run_neb(
     k: float = 0.1,
     fmax: float = 0.05,
     steps: int = 500,
-    calc_mode: str = "PBE"
+    calc_mode: str = CALC_MODE
 ) -> list:
     """
     ASE NEB法による反応経路探索。
@@ -180,7 +182,7 @@ def run_neb(
     for image in images:
         image.calc = ASECalculator(
             Estimator(
-                model_version="v8.0.0",
+                model_version=MODEL_VERSION,
                 calc_mode=calc_mode
             )
         )
@@ -210,7 +212,7 @@ def run_neb(
 # 正しいパターン: 各imageに個別のEstimator + Calculator
 for image in images:
     image.calc = ASECalculator(
-        Estimator(model_version="v8.0.0", calc_mode=calc_mode)
+        Estimator(model_version=MODEL_VERSION, calc_mode=calc_mode)
     )
 
 # 誤ったパターン: Estimatorの共有（エラーになる）
@@ -234,7 +236,7 @@ neb = NEBFeature(
     climb=True,        # CI-NEB で正確な TS を取得
     idpp=False,        # 結晶系ではIDPP を無効にする場合がある
     estimator_fn=pfp_estimator_fn(
-        model_version="v8.0.0",
+        model_version=MODEL_VERSION,
         calc_mode="PBE"
     ),
 )
@@ -266,17 +268,16 @@ scan = RestScanFeature(
 探索された経路のエネルギープロファイルを計算し、活性化エネルギーを算出します。
 
 ```python
-from pfp_api_client.pfp.calculators.ase_calculator import ASECalculator
-from pfp_api_client.pfp.estimator import Estimator
+from pfp_api_client import Estimator, ASECalculator
 import matplotlib.pyplot as plt
 import numpy as np
 
-def analyze_reaction_profile(pathway: List[Atoms], calc_mode: str = "PBE"):
+def analyze_reaction_profile(pathway: List[Atoms], calc_mode: str = CALC_MODE):
     """
     反応経路のエネルギープロファイルを計算・表示する。
     Forward/backward barrierの両方を出力する。
     """
-    estimator = Estimator(calc_mode=calc_mode, model_version="v8.0.0")
+    estimator = Estimator(calc_mode=calc_mode, model_version=MODEL_VERSION)
     calc = ASECalculator(estimator)
 
     energies = []
@@ -352,7 +353,7 @@ def search_adsorption_sites(
     slab: Atoms,
     adsorbate: Atoms,
     positions: list,
-    calc_mode: str = "PBE"
+    calc_mode: str = CALC_MODE
 ):
     """
     パラメータ化した初期配置を複数作り、
@@ -368,7 +369,7 @@ def search_adsorption_sites(
 
         # PFPで構造最適化
         system.calc = ASECalculator(
-            Estimator(model_version="v8.0.0", calc_mode=calc_mode)
+            Estimator(model_version=MODEL_VERSION, calc_mode=calc_mode)
         )
         # 最適化後のエネルギーを記録
         results.append({

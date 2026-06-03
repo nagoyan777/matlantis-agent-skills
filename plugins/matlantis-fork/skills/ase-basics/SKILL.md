@@ -16,6 +16,12 @@ ASE (Atomic Simulation Environment) は原子スケールシミュレーショ�
 
 ASE を理解すれば Matlantis の操作方法がわかります。Matlantis は ASE の Calculator インターフェースを通じて PFP を利用する設計になっているためです。
 
+> **推奨バージョン**: ASE **3.28.0**（Matlantis 環境インストール済み）を使用してください。主要なバージョン履歴:
+> - **3.23.0**: `ExpCellFilter` 非推奨
+> - **3.24.0**: `FrechetCellFilter`、`NoseHooverChainNVT`、`Bussi` 導入
+> - **3.25.0**: `IsotropicMTKNPT`、`MTKNPT` 導入
+> - **3.28.0**: `thermalize_momenta` 導入・`MaxwellBoltzmannDistribution` 非推奨、`Langevin.fixcm` 非推奨
+
 ### 中心的な概念
 
 | 概念 | 説明 |
@@ -188,16 +194,16 @@ atoms = read("structure.cif", index=0)
 # 最後のフレームを明示的に読み込み
 atoms = read("structure.cif", index=-1)
 
-# 全フレームをリストとして読み込み（トラジェクトリ）
-frames = read("opt.traj", index=":")
-print(f"Total frames: {len(frames)}")
-last_frame = frames[-1]
+# .traj トラジェクトリは Trajectory で読み込む（ase.io.read より効率的）
+from ase.io.trajectory import Trajectory
+traj = Trajectory("opt.traj")
+print(f"Total frames: {len(traj)}")
+last_frame = traj[-1]
 ```
 
 `index` パラメータ:
 - `-1`: 最後のフレーム（デフォルト）
 - `0`: 最初のフレーム
-- `":"`: 全フレームをリストで取得
 
 ### パターン I: 構造ファイルの書き出し
 
@@ -283,6 +289,108 @@ print(f"PBC: {atoms.pbc}")
 
 6. **フォーマット自動判定の活用**: `read` / `write` では拡張子からフォーマットが自動判定されるため、`format` 引数は通常不要です。
 
+7. **物理定数・単位変換に `ase.units` を使用する**: `1.38e-23` や `96.485` のような数値を直接コードに書いてはいけません。`from ase import units` を使用してください。
+
+### 補足: 単位系と ase.units による単位変換
+
+原子シミュレーションでは複数の単位系が混在します。単位変換に数値を直接書くと誤りの原因になるため、常に `ase.units` の定数を使用してください。
+
+#### 主要な単位系
+
+| 単位系 | 長さ | エネルギー | 質量 | 圧力 | 電荷 | 用途 |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| SI | m | J | kg | Pa | C (Coulomb) | 実験・教科書 |
+| 化学慣用 | Å | kJ/mol, kcal/mol | g/mol (= amu) | atm, bar | — | 熱化学・生化学 |
+| eV 系 | Å | eV | amu | GPa | e (素電荷) | DFT・凝縮系物理 |
+| **ASE 内部** | **Å** | **eV** | **amu** | **eV/Å³** | **e (素電荷)** | ASE の全出力はこの単位 |
+
+ASE の Calculator が返す物理量の単位:
+
+| 物理量 | メソッド | 単位 |
+| :--- | :--- | :--- |
+| エネルギー | `get_potential_energy()` | eV |
+| 力 | `get_forces()` | eV/Å |
+| 応力 | `get_stress()` | eV/Å³ |
+| 質量 | `get_masses()` | amu |
+| 電荷 | `get_charges()` | e (素電荷) |
+| 双極子モーメント | `get_dipole_moment()` | eÅ |
+
+#### ase.units の主な定数
+
+```python
+from ase import units
+
+# エネルギー換算係数（eV 基準）
+units.kJ      # 1 kJ = ? eV  (≈ 0.01036 eV)
+units.kcal    # 1 kcal = ? eV (≈ 0.04336 eV)
+units.mol     # Avogadro 数（無次元, ≈ 6.022e23）
+units.Hartree # 1 Hartree = ? eV (≈ 27.21 eV)
+
+# 温度・熱エネルギー
+units.kB      # Boltzmann 定数 [eV/K] (≈ 8.617e-5 eV/K)
+
+# 時間
+units.fs      # 1 fs を ASE 内部時間単位に変換する係数
+
+# 圧力
+units.GPa     # 1 GPa → eV/Å³
+units.bar     # 1 bar → eV/Å³
+units.Pascal  # 1 Pa  → eV/Å³
+# atm は ase.units に含まれないため Pascal から導出する
+# 1 atm = 101325 Pa
+atm = 101325 * units.Pascal
+
+# 長さ
+units.Bohr    # 1 Bohr = ? Å (≈ 0.529 Å)
+units.nm      # 1 nm = 10 Å
+units.m       # 1 m = 1e10 Å
+# cm は ase.units に含まれないため m から導出する
+cm = 1e-2 * units.m   # 1 cm = 1e8 Å
+
+# 質量
+# ASE 内部の質量単位は amu。atoms.get_masses() は amu を返す
+units.kg      # 1 kg → amu (≈ 6.022e26 amu/kg)
+# amu → kg への逆変換
+# mass_kg = mass_amu / units.kg  は誤り。正しくは:
+# mass_kg = mass_amu * units._amu   (_amu は SI の amu 値 [kg])
+
+# 静電気
+units.Debye   # 1 Debye → eÅ (双極子モーメントの変換係数, ≈ 0.2082 eÅ)
+# ASE の電荷は素電荷 e の倍数（整数または実数）で扱う
+# 双極子モーメント: get_dipole_moment() [eÅ] → Debye への変換
+# dipole_debye = dipole_eA / units.Debye
+units.C       # 1 Coulomb → e の倍数（逆数が素電荷の SI 値）
+```
+
+#### よく使う変換パターン
+
+```python
+from ase import units
+
+# 温度 → 熱エネルギー (eV)
+T_K = 300.0
+kBT = units.kB * T_K                                # ≈ 0.0259 eV at 300 K
+
+# eV → kJ/mol（実験値との比較）
+energy_eV = atoms.get_potential_energy()
+energy_kJmol = energy_eV * units.mol / units.kJ     # ≈ 96.5 kJ/mol per eV
+
+# eV → kcal/mol
+energy_kcalmol = energy_eV * units.mol / units.kcal # ≈ 23.1 kcal/mol per eV
+
+# 時間ステップ (fs → ASE 内部単位)
+dt = 1.0 * units.fs             # Langevin/VelocityVerlet の timestep 引数に渡す
+
+# 圧力 (GPa / bar / atm → ASE 内部単位)
+pressure_GPa = 1.0 * units.GPa
+pressure_bar = 1.0 * units.bar
+pressure_atm = 101325 * units.Pascal  # 1 atm
+
+# 双極子モーメント (eÅ → Debye)
+dipole_eA = atoms.get_dipole_moment()   # [eÅ], shape (3,)
+dipole_debye = dipole_eA / units.Debye  # [Debye]
+```
+
 ### 補足: PBC が必要な系の判定基準
 
 | 系の種類 | PBC 設定 | 理由 |
@@ -317,7 +425,7 @@ atoms_copy.calc = atoms.calc
 | `pbc` が意図と異なる | `molecule()` は `pbc=False`、`bulk()` は `pbc=True` がデフォルト | 生成後に `atoms.pbc` を確認・設定してください |
 | スーパーセル後に原子数が想定と異なる | `repeat()` の引数の理解不足 | `repeat((2,2,2))` は各軸 2 倍で原子数は 8 倍になります |
 | `center()` 後にセルが大きすぎる | `vacuum` パラメータが大きすぎる | 分子系は `vacuum=10.0` 程度から始めてください |
-| Trajectory 読み込みで 1 フレームしか得られない | `index` パラメータの指定漏れ | `read("file.traj", index=":")` で全フレームを取得してください |
+| Trajectory 読み込みで 1 フレームしか得られない | `ase.io.read` の `index` 指定漏れ、または `Trajectory` 未使用 | `.traj` ファイルは `Trajectory("file.traj")` で読み込んでください |
 
 ## 関連ガイド
 

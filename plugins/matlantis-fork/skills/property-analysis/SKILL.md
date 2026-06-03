@@ -11,7 +11,8 @@ description: >
   PostNEMDThermalConductivityFeature, 熱伝導率,
   PostMDSpecificHeatFeature, 比熱, PostMDThermalExpansionFeature, 熱膨張,
   GasStandardFormationEnthalpyFeature, PostVibrationGasThermoFeature, ガス熱化学,
-  RDF, 動径分布関数, 振動状態密度
+  RDF, 動径分布関数, 振動状態密度,
+  XRD, X線回折, RadialDistributionFunctionFast, XRDCalculator
   に関するコード生成時に使用してください。
 ---
 
@@ -78,7 +79,10 @@ from matlantis_features.features.elasticity import (
 )
 from matlantis_features.utils.calculators import pfp_estimator_fn
 
-estimator_fn = pfp_estimator_fn(model_version="v8.0.0", calc_mode="PBE")
+MODEL_VERSION = "v9.0.0"
+CALC_MODE = "R2SCAN"
+
+estimator_fn = pfp_estimator_fn(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 
 # Step 1: 弾性テンソルの計算
 elastic = ElasticTensorFeature(estimator_fn=estimator_fn)
@@ -119,7 +123,7 @@ from matlantis_features.features.phonon import (
     PostPhononThermochemistryFeature,
 )
 
-estimator_fn = pfp_estimator_fn(model_version="v8.0.0", calc_mode="PBE")
+estimator_fn = pfp_estimator_fn(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 
 # Step 1: 力定数の計算
 # supercell: スーパーセルのサイズ（大きいほど正確だが遅い。4-6で開始推奨）
@@ -183,7 +187,7 @@ from matlantis_features.features.md import (
     PostMDDiffusionFeature,
 )
 
-estimator_fn = pfp_estimator_fn(model_version="v8.0.0", calc_mode="PBE")
+estimator_fn = pfp_estimator_fn(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 
 # Step 1: MD trajectoryの生成
 md = MDFeature(
@@ -288,7 +292,7 @@ from matlantis_features.features.common.gas_formation_enthalpy import (
     GasStandardFormationEnthalpyFeature,
 )
 
-estimator_fn = pfp_estimator_fn(model_version="v8.0.0", calc_mode="PBE")
+estimator_fn = pfp_estimator_fn(model_version=MODEL_VERSION, calc_mode=CALC_MODE)
 
 # 振動解析
 vib = VibrationFeature(delta=0.01, estimator_fn=estimator_fn)
@@ -320,6 +324,77 @@ MD trajectory から振動状態密度を計算します。速度自己相関関
 ```python
 # Dipole feature は gRPC 経由で利用可能
 # 詳細は matlantis-features の API リファレンスを参照
+```
+
+### パターン L: 動径分布関数（RDF）— pymatgen
+
+元素種ペアを指定して RDF を計算したい場合は `pymatgen.analysis.diffusion` の `RadialDistributionFunctionFast` を使用します。ASE の `Analysis.get_rdf` よりも元素種指定と配位数計算が容易です（`pymatgen-analysis-diffusion` パッケージが必要）。
+
+```python
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.analysis.diffusion.aimd.rdf import RadialDistributionFunctionFast
+import matplotlib.pyplot as plt
+
+# ASE Atoms リスト → pymatgen Structure リスト
+structures = [AseAtomsAdaptor.get_structure(atoms) for atoms in trajectory]
+
+rdf = RadialDistributionFunctionFast(
+    structures=structures,
+    rmin=0.0,
+    rmax=10.0,  # 最大半径 [Å]
+    ngrid=200,  # グリッド点数
+    sigma=0.1,  # ガウスブロードニング幅 [Å]
+)
+
+# 元素ペアを指定して RDF を取得 → (r [Å], g(r)) のタプル
+r, g_r = rdf.get_rdf(ref_species="Li", species="O")
+
+# 配位数の取得
+r_cn, cn_list = rdf.get_coordination_number(ref_species="Li", species="O")
+
+fig, ax = plt.subplots()
+ax.plot(r, g_r)
+ax.set_xlabel("r (Å)")
+ax.set_ylabel("g(r)")
+ax.set_title("Li-O RDF")
+```
+
+複数フレームを渡すとアンサンブル平均の RDF が得られます。単一フレームでも動作します。
+
+### パターン M: X 線回折パターン（XRD）— pymatgen
+
+最適化済み結晶構造から粉末 XRD パターンを計算します。`pymatgen.analysis.diffraction.xrd.XRDCalculator` を使用します。
+
+```python
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.analysis.diffraction.xrd import XRDCalculator
+import matplotlib.pyplot as plt
+
+# ASE Atoms → pymatgen Structure
+structure = AseAtomsAdaptor.get_structure(atoms)
+
+# XRD パターンの計算（デフォルト: Cu Kα 線）
+calc = XRDCalculator(wavelength="CuKa")
+pattern = calc.get_pattern(structure, two_theta_range=(10, 80))
+
+# pattern.x : 2θ [degree]
+# pattern.y : 規格化強度（最大ピーク = 100）
+# pattern.hkls : 各ピークの Miller 指数リスト
+# pattern.d_hkls : 各ピークの面間隔 [Å]
+
+fig, ax = plt.subplots()
+ax.stem(pattern.x, pattern.y, markerfmt=" ", basefmt=" ")
+ax.set_xlabel("2θ (degree)")
+ax.set_ylabel("Intensity")
+ax.set_title("Powder XRD Pattern (Cu Kα)")
+```
+
+利用可能な線源: `"CuKa"`, `"MoKa"`, `"CrKa"`, `"FeKa"`, `"CoKa"`, `"AgKa"` など。波長を直接 Å で指定することも可能（例: `wavelength=1.5406`）。
+
+```python
+# 対称性を考慮した計算（spglib を使用）
+calc = XRDCalculator(wavelength="CuKa", symprec=0.1)
+pattern = calc.get_pattern(structure)
 ```
 
 ## ベストプラクティス
